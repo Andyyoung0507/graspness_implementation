@@ -4,7 +4,7 @@ import argparse
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset_root', default=None, required=True)
+parser.add_argument('--dataset_root', default='/home/axe/Downloads/datasets/GraspNet')
 
 
 def simplify_grasp_labels(root, save_path):

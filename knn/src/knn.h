@@ -3,15 +3,11 @@
 
 #ifdef WITH_CUDA
 #include "cuda/vision.h"
-#include <THC/THC.h>
-extern THCState *state;
+#include <ATen/cuda/CUDAContext.h>
 #endif
-
-
 
 int knn(at::Tensor& ref, at::Tensor& query, at::Tensor& idx)
 {
-
     // TODO check dimensions
     long batch, ref_nb, query_nb, dim, k;
     batch = ref.size(0);
@@ -24,45 +20,38 @@ int knn(at::Tensor& ref, at::Tensor& query, at::Tensor& idx)
     float *query_dev = query.data<float>();
     long *idx_dev = idx.data<long>();
 
-
-
-
-  if (ref.type().is_cuda()) {
+    if (ref.is_cuda()) {
 #ifdef WITH_CUDA
-    // TODO raise error if not compiled with CUDA
-    float *dist_dev = (float*)THCudaMalloc(state, ref_nb * query_nb * sizeof(float));
+        // 使用 ATen 库进行内存分配和释放
+        auto dist_dev_tensor = at::empty({ref_nb * query_nb}, ref.options().dtype(at::kFloat).device(at::kCUDA));
+        float* dist_dev = dist_dev_tensor.data_ptr<float>();
 
-    for (int b = 0; b < batch; b++)
-    {
-    // knn_device(ref_dev + b * dim * ref_nb, ref_nb, query_dev + b * dim * query_nb, query_nb, dim, k,
-    //   dist_dev, idx_dev + b * k * query_nb, THCState_getCurrentStream(state));
-      knn_device(ref_dev + b * dim * ref_nb, ref_nb, query_dev + b * dim * query_nb, query_nb, dim, k,
-      dist_dev, idx_dev + b * k * query_nb, c10::cuda::getCurrentCUDAStream());
-    }
-    THCudaFree(state, dist_dev);
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess)
-    {
-        printf("error in knn: %s\n", cudaGetErrorString(err));
-        THError("aborting");
-    }
-    return 1;
+        for (int b = 0; b < batch; b++) {
+            knn_device(ref_dev + b * dim * ref_nb, ref_nb, query_dev + b * dim * query_nb, query_nb, dim, k,
+                       dist_dev, idx_dev + b * k * query_nb, c10::cuda::getCurrentCUDAStream());
+        }
+
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            printf("error in knn: %s\n", cudaGetErrorString(err));
+            throw std::runtime_error("Aborting due to CUDA error.");
+        }
+        return 1;
 #else
-    AT_ERROR("Not compiled with GPU support");
+        AT_ERROR("Not compiled with GPU support");
 #endif
-  }
+    }
 
-
+    // CPU 代码保持不变
     float *dist_dev = (float*)malloc(ref_nb * query_nb * sizeof(float));
     long *ind_buf = (long*)malloc(ref_nb * sizeof(long));
     for (int b = 0; b < batch; b++) {
-    knn_cpu(ref_dev + b * dim * ref_nb, ref_nb, query_dev + b * dim * query_nb, query_nb, dim, k,
-      dist_dev, idx_dev + b * k * query_nb, ind_buf);
+        knn_cpu(ref_dev + b * dim * ref_nb, ref_nb, query_dev + b * dim * query_nb, query_nb, dim, k,
+                dist_dev, idx_dev + b * k * query_nb, ind_buf);
     }
 
     free(dist_dev);
     free(ind_buf);
 
     return 1;
-
 }

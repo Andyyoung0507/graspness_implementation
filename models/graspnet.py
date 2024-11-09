@@ -43,14 +43,14 @@ class GraspNet(nn.Module):
         coordinates_batch = end_points['coors']
         features_batch = end_points['feats']
         mink_input = ME.SparseTensor(features_batch, coordinates=coordinates_batch)
-        seed_features = self.backbone(mink_input).F
+        seed_features = self.backbone(mink_input).F # 在 MinkowskiEngine 中，SparseTensor 对象有两个主要属性：C 和 F。C 表示稀疏坐标，F 表示特征（features）
         seed_features = seed_features[end_points['quantize2original']].view(B, point_num, -1).transpose(1, 2)
 
         end_points = self.graspable(seed_features, end_points)
         seed_features_flipped = seed_features.transpose(1, 2)  # B*Ns*feat_dim
         objectness_score = end_points['objectness_score']
         graspness_score = end_points['graspness_score'].squeeze(1)
-        objectness_pred = torch.argmax(objectness_score, 1)
+        objectness_pred = torch.argmax(objectness_score, 1) # objectness_score 是一个2分类结果
         objectness_mask = (objectness_pred == 1)
         graspness_mask = graspness_score > GRASPNESS_THRESHOLD
         graspable_mask = objectness_mask & graspness_mask
@@ -100,6 +100,7 @@ def pred_decode(end_points):
         grasp_center = end_points['xyz_graspable'][i].float()
 
         grasp_score = end_points['grasp_score_pred'][i].float()
+        
         grasp_score = grasp_score.view(M_POINT, NUM_ANGLE*NUM_DEPTH)
         grasp_score, grasp_score_inds = torch.max(grasp_score, -1)  # [M_POINT]
         grasp_score = grasp_score.view(-1, 1)

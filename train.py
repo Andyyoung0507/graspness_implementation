@@ -20,16 +20,16 @@ from models.loss import get_loss
 from dataset.graspnet_dataset import GraspNetDataset, minkowski_collate_fn, load_grasp_labels
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset_root', default=None, required=True)
-parser.add_argument('--camera', default='kinect', help='Camera split [realsense/kinect]')
+parser.add_argument('--dataset_root', default='/home/axe/Downloads/datasets/GraspNet')
+parser.add_argument('--camera', default='realsense', help='Camera split [realsense/kinect]')
 parser.add_argument('--checkpoint_path', help='Model checkpoint path', default=None)
-parser.add_argument('--model_name', type=str, default=None)
-parser.add_argument('--log_dir', default='logs/log')
+parser.add_argument('--model_name', type=str, default='None')
+parser.add_argument('--log_dir', default='/home/axe/Downloads/repository/graspness_implementation/logs/log')
 parser.add_argument('--num_point', type=int, default=15000, help='Point Number [default: 20000]')
 parser.add_argument('--seed_feat_dim', default=512, type=int, help='Point wise feature dim')
 parser.add_argument('--voxel_size', type=float, default=0.005, help='Voxel Size to process point clouds ')
-parser.add_argument('--max_epoch', type=int, default=10, help='Epoch to run [default: 18]')
-parser.add_argument('--batch_size', type=int, default=4, help='Batch Size during training [default: 2]')
+parser.add_argument('--max_epoch', type=int, default=5, help='Epoch to run [default: 18]')
+parser.add_argument('--batch_size', type=int, default=2, help='Batch Size during training [default: 2]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--resume', action='store_true', default=False, help='Whether to resume from checkpoint')
 cfgs = parser.parse_args()
@@ -59,10 +59,14 @@ grasp_labels = load_grasp_labels(cfgs.dataset_root)
 TRAIN_DATASET = GraspNetDataset(cfgs.dataset_root, grasp_labels=grasp_labels, camera=cfgs.camera, split='train',
                                 num_points=cfgs.num_point, voxel_size=cfgs.voxel_size,
                                 remove_outlier=True, augment=True, load_label=True)
+TEST_DATASET = GraspNetDataset(cfgs.dataset_root, split='test_seen', camera=cfgs.camera, num_points=cfgs.num_point,voxel_size=cfgs.voxel_size, remove_outlier=True, augment=False, load_label=False)
 print('train dataset length: ', len(TRAIN_DATASET))
+print('test dataset length: ', len(TEST_DATASET))
 TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=cfgs.batch_size, shuffle=True,
                               num_workers=0, worker_init_fn=my_worker_init_fn, collate_fn=minkowski_collate_fn)
+TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=cfgs.batch_size, shuffle=False,num_workers=4, worker_init_fn=my_worker_init_fn, collate_fn=minkowski_collate_fn)
 print('train dataloader length: ', len(TRAIN_DATALOADER))
+print('test dataloader length: ', len(TEST_DATALOADER))
 
 net = GraspNet(seed_feat_dim=cfgs.seed_feat_dim, is_training=True)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -78,7 +82,7 @@ if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     log_string("-> loaded checkpoint %s (epoch: %d)" % (CHECKPOINT_PATH, start_epoch))
 # TensorBoard Visualizers
 TRAIN_WRITER = SummaryWriter(os.path.join(cfgs.log_dir, 'train'))
-
+TEST_WRITER = SummaryWriter(os.path.join(cfgs.log_dir, 'test'))
 
 def get_current_lr(epoch):
     lr = cfgs.learning_rate
@@ -126,6 +130,41 @@ def train_one_epoch():
                 log_string('mean %s: %f' % (key, stat_dict[key] / batch_interval))
                 stat_dict[key] = 0
 
+def evaluate_one_epoch():
+    stat_dict = {} # collect statistics
+    # set model to eval mode (for bn and dp)
+    net.eval()
+    for batch_idx, batch_data_label in enumerate(TEST_DATALOADER):
+        if batch_idx % 10 == 0:
+            print('Eval batch: %d'%(batch_idx))
+        for key in batch_data_label:
+            if 'list' in key:
+                for i in range(len(batch_data_label[key])):
+                    for j in range(len(batch_data_label[key][i])):
+                        batch_data_label[key][i][j] = batch_data_label[key][i][j].to(device)
+            else:
+                batch_data_label[key] = batch_data_label[key].to(device)
+        
+        # Forward pass
+        with torch.no_grad():
+            end_points = net(batch_data_label)
+
+        # Compute loss
+        loss, end_points = get_loss(end_points)
+
+        # Accumulate statistics and print out
+        for key in end_points:
+            if 'loss' in key or 'acc' in key or 'prec' in key or 'recall' in key or 'count' in key:
+                if key not in stat_dict: stat_dict[key] = 0
+                stat_dict[key] += end_points[key].item()
+
+    for key in sorted(stat_dict.keys()):
+        TEST_WRITER.add_scalar(key, stat_dict[key]/float(batch_idx+1), (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*cfgs.batch_size)
+        log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
+
+    mean_loss = stat_dict['loss/overall_loss']/float(batch_idx+1)
+    return mean_loss
+
 
 def train(start_epoch):
     global EPOCH_CNT
@@ -138,7 +177,21 @@ def train(start_epoch):
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
         train_one_epoch()
-
+        
+        # loss = evaluate_one_epoch()
+        # save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
+        #             'optimizer_state_dict': optimizer.state_dict(),
+        #             'loss': loss,
+        #             }
+        # try: # with nn.DataParallel() the net is added as a submodule of DataParallel
+        #     # save_dict['model_state_dict'] = net.module.state_dict()
+        #     save_dict = {'epoch': epoch + 1, 'optimizer_state_dict': optimizer.state_dict(),
+        #              'model_state_dict': net.module.state_dict()}
+        # except:
+        #     # save_dict['model_state_dict'] = net.state_dict()
+        #     save_dict = {'epoch': epoch + 1, 'optimizer_state_dict': optimizer.state_dict(),
+        #              'model_state_dict': net.state_dict()}
+        # # torch.save(save_dict, os.path.join(cfgs.log_dir, 'checkpoint.tar'))
         save_dict = {'epoch': epoch + 1, 'optimizer_state_dict': optimizer.state_dict(),
                      'model_state_dict': net.state_dict()}
         torch.save(save_dict, os.path.join(cfgs.log_dir, cfgs.model_name + '_epoch' + str(epoch + 1).zfill(2) + '.tar'))

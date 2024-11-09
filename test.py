@@ -15,12 +15,14 @@ sys.path.append(os.path.join(ROOT_DIR, 'dataset'))
 
 from models.graspnet import GraspNet, pred_decode
 from dataset.graspnet_dataset import GraspNetDataset, minkowski_collate_fn
+print(sys.path)
+print('/home/axe/Downloads/repository/graspness_implementation/utils' in sys.path)
 from utils.collision_detector import ModelFreeCollisionDetector
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset_root', default=None, required=True)
-parser.add_argument('--checkpoint_path', help='Model checkpoint path', default=None, required=True)
-parser.add_argument('--dump_dir', help='Dump dir to save outputs', default=None, required=True)
+parser.add_argument('--dataset_root', default='/home/axe/Downloads/datasets/GraspNet', required=False)
+parser.add_argument('--checkpoint_path', help='Model checkpoint path', default='/home/axe/Downloads/repository/graspness_implementation/logs/log/None_epoch05.tar', required=False)
+parser.add_argument('--dump_dir', help='Dump dir to save outputs', default='/home/axe/Downloads/repository/graspness_implementation/logs/dump_epoch5', required=False)
 parser.add_argument('--seed_feat_dim', default=512, type=int, help='Point wise feature dim')
 parser.add_argument('--camera', default='kinect', help='Camera split [realsense/kinect]')
 parser.add_argument('--num_point', type=int, default=15000, help='Point Number [default: 15000]')
@@ -29,8 +31,8 @@ parser.add_argument('--voxel_size', type=float, default=0.005, help='Voxel Size 
 parser.add_argument('--collision_thresh', type=float, default=0.01,
                     help='Collision Threshold in collision detection [default: 0.01]')
 parser.add_argument('--voxel_size_cd', type=float, default=0.01, help='Voxel Size for collision detection')
-parser.add_argument('--infer', action='store_true', default=False)
-parser.add_argument('--eval', action='store_true', default=False)
+parser.add_argument('--infer', action='store_true', default=True)
+parser.add_argument('--eval', action='store_true', default=True)
 cfgs = parser.parse_args()
 
 # ------------------------------------------------------------------------- GLOBAL CONFIG BEG

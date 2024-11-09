@@ -1,6 +1,10 @@
 import MinkowskiEngine as ME
 from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck
-from models.resnet import ResNetBase
+import os
+import sys
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(ROOT_DIR, 'models'))
+from resnet import ResNetBase
 
 
 class MinkUNetBase(ResNetBase):

@@ -14,8 +14,8 @@ import argparse
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset_root', default=None, required=True)
-parser.add_argument('--camera_type', default='kinect', help='Camera split [realsense/kinect]')
+parser.add_argument('--dataset_root', default='/home/axe/Downloads/datasets/GraspNet')
+parser.add_argument('--camera_type', default='realsense', help='Camera split [realsense/kinect]')
 
 
 if __name__ == '__main__':
